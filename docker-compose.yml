@@ -1,0 +1,63 @@
+name: brokercrash
+
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    ports: ["19092:19092"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: brokercrash-cluster-0001
+    volumes: ["kafka-data:/var/lib/kafka/data"]
+
+  # --mem-queue-size=0 forces every message through the on-disk queue.
+  # --sync-every left at the 2500-message default (see ADR: matched against
+  # RabbitMQ's batched fsync rather than fsync-per-message).
+  nsqd:
+    image: nsqio/nsq:v1.3.0
+    command: /nsqd --broadcast-address=nsqd --mem-queue-size=0 --data-path=/data
+    ports: ["14150:4150", "14151:4151"]
+    volumes: ["nsq-data:/data"]
+
+  rabbit:
+    image: rabbitmq:4-alpine
+    ports: ["5673:5672"]
+    hostname: rabbit
+    environment:
+      RABBITMQ_DEFAULT_USER: bench
+      RABBITMQ_DEFAULT_PASS: bench
+    volumes: ["rabbit-data:/var/lib/rabbitmq"]
+
+  consumer:
+    image: alpine:3.20
+    working_dir: /app
+    entrypoint: ["/app/consumer"]
+    command:
+      - "-broker=${BROKER:-kafka}"
+      - "-addr=${BROKER_ADDR:-kafka:9092}"
+      - "-topic=bench"
+      - "-group=bench"
+      - "-out=/out/consumed.csv"
+    volumes:
+      - ./bin:/app:ro
+      - ./results/current:/out
+    restart: "no"
+
+volumes:
+  kafka-data:
+  nsq-data:
+  rabbit-data:
