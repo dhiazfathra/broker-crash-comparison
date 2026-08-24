@@ -9,8 +9,8 @@ svc_of()  { case $1 in kafka) echo kafka;; nsq) echo nsqd;; rabbit) echo rabbit;
 hostaddr(){ case $1 in kafka) echo localhost:19092;; nsq) echo localhost:14150;; rabbit) echo amqp://bench:bench@localhost:5673/;; esac; }
 hostport(){ case $1 in kafka) echo 19092;; nsq) echo 14150;; rabbit) echo 5673;; esac; }
 
-while ! mkdir /tmp/bench.lock 2>/dev/null; do echo "waiting for benchmark lock..."; sleep 20; done
-trap 'rmdir /tmp/bench.lock 2>/dev/null || true' EXIT
+# The caller holds /tmp/expbrief/benchlock.sh for the whole matrix; this script
+# never touches the lock.
 
 mkdir -p results
 : > results/saturation.txt

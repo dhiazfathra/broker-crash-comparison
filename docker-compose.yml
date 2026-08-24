@@ -54,10 +54,13 @@ services:
       - "-out=/out/consumed.csv"
     volumes:
       - ./bin:/app:ro
-      - ./results/current:/out
+      - consumer-out:/out
     restart: "no"
 
 volumes:
+  # The consumer log lives on a container volume, not a bind mount: virtiofs
+  # made the consumer, not the broker, the bottleneck.
+  consumer-out:
   kafka-data:
   nsq-data:
   rabbit-data:
