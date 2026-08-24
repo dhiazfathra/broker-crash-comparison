@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	c, err := broker.NewConsumer(*name, *addr, *topic, *group)
 	if err != nil {

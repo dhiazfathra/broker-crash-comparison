@@ -30,7 +30,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	f, err := os.Create(*out)
 	if err != nil {
@@ -73,7 +73,7 @@ func main() {
 	done := make(chan struct{})
 	go func() {
 		for r := range recs {
-			fmt.Fprintf(w, "%d,%d\n", r.seq, r.ns)
+			_, _ = fmt.Fprintf(w, "%d,%d\n", r.seq, r.ns)
 		}
 		close(done)
 	}()
