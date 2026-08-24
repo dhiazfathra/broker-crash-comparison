@@ -90,13 +90,20 @@ for b in $BROKERS; do
 			wait $prodpid || true
 			cat results/current/producer.log
 
-			# drain: wait until the consumed line count stops moving
+			# Drain: wait until the consumed count has been still for three samples.
+			# The crash arm waits at least 60s regardless, because a Kafka group
+			# cannot make progress until the SIGKILLed member's session times out
+			# (30s by default) — breaking early would report that as message loss.
+			mindrain=2
+			[ "$arm" = crash ] && mindrain=20
 			prev=-1
-			for _ in $(seq 1 40); do
+			stable=0
+			for i in $(seq 1 60); do
 				sleep 3
 				cur=$(docker exec "$CONSUMER_CT" wc -l /out/consumed.csv 2>/dev/null | awk '{print $1}' || echo 0)
-				[ "$cur" = "$prev" ] && break
+				if [ "$cur" = "$prev" ]; then stable=$((stable + 1)); else stable=0; fi
 				prev=$cur
+				if [ "$stable" -ge 3 ] && [ "$i" -ge "$mindrain" ]; then break; fi
 			done
 			kill $statspid 2>/dev/null || true
 			docker stop -t 3 "$CONSUMER_CT" >/dev/null 2>&1 || true
@@ -107,7 +114,7 @@ for b in $BROKERS; do
 				>"results/runs/$tag.json"
 			cat "results/runs/$tag.json"
 			cp results/current/stats.csv "results/runs/$tag.stats.csv"
-			cp results/current/producer.log "results/runs/$tag.producer.log"
+			cp results/current/producer.log "results/runs/$tag.producer.txt"
 			gzip -c results/current/consumed.csv >"results/runs/$tag.consumed.csv.gz"
 			gzip -c results/current/produced.csv >"results/runs/$tag.produced.csv.gz"
 		done

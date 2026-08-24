@@ -1,4 +1,10 @@
 # Summary (median of runs 2..N, run 1 discarded as warm-up)
 
-| broker | arm | n | published | delivered | lost | duplicates | dups after restart | thr msg/s | p50 ms | p95 ms | p99 ms | max ms | backlog peak | redeliv delay ms | catch-up ms | broker CPU % | broker RSS MiB |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| broker | arm     | n   | published | delivered | lost | duplicates | dups after restart | thr msg/s | p50 ms  | p95 ms  | p99 ms  | max ms | backlog peak | redeliv delay ms | catch-up ms | broker CPU % (control) | broker RSS MiB (control) |
+| ------ | ------- | --- | --------- | --------- | ---- | ---------- | ------------------ | --------- | ------- | ------- | ------- | ------ | ------------ | ---------------- | ----------- | ---------------------- | ------------------------ |
+| kafka  | control | 3   | 60000     | 60000     | 0    | 0          | 0                  | 2122      | 8.8     | 236.0   | 1429.2  | 1728   | 3456         | 0                | 0           | 23.2                   | 402                      |
+| kafka  | crash   | 3   | 60000     | 61376     | 0    | 1376       | 1376               | 1495      | 14585.4 | 27979.9 | 29169.8 | 29469  | 35603        | 23943            | 24076       | 23.2                   | 402                      |
+| nsq    | control | 3   | 60000     | 60000     | 0    | 0          | 0                  | 1994      | 58.8    | 65.6    | 72.7    | 152    | 258          | 0                | 0           | 15.5                   | 10                       |
+| nsq    | crash   | 3   | 60000     | 60000     | 0    | 0          | 0                  | 830       | 57.7    | 3969.8  | 5127.8  | 60150  | 10836        | 12               | 54506       | 15.5                   | 10                       |
+| rabbit | control | 3   | 60000     | 60000     | 0    | 0          | 0                  | 2000      | 49.7    | 54.5    | 61.7    | 161    | 349          | 0                | 0           | 93.3                   | 82                       |
+| rabbit | crash   | 3   | 60000     | 60000     | 0    | 0          | 0                  | 2000      | 50.0    | 3939.4  | 5082.0  | 5373   | 10740        | 1                | 12093       | 93.3                   | 82                       |

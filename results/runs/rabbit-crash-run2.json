@@ -1,0 +1,19 @@
+{
+  "broker": "rabbit",
+  "arm": "crash",
+  "run": 2,
+  "published": 60000,
+  "deliveries": 60000,
+  "unique": 60000,
+  "lost": 0,
+  "duplicates": 0,
+  "duplicates_after_restart": 0,
+  "throughput_msgs_per_sec": 1999.920372237083,
+  "latency_p50_ms": 50.000669,
+  "latency_p95_ms": 3982.581474,
+  "latency_p99_ms": 5126.874445,
+  "latency_max_ms": 5417.456931,
+  "backlog_peak": 10835,
+  "redelivery_delay_ms": 0.074148,
+  "catch_up_ms": 12093.028153
+}

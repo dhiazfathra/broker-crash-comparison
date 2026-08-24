@@ -1,8 +1,147 @@
 ---
-title: "Kafka, NSQ and RabbitMQ under a consumer SIGKILL"
-description: "Measurement in progress."
+title: "SIGKILL the consumer: what Kafka, NSQ and RabbitMQ actually cost you"
+description: "At a fixed 2000 msg/s, none of the three lost a message when the consumer was killed mid-stream. What separated them was the redelivery delay: 1 ms for RabbitMQ, 24 s for Kafka, and a 60 s tail for NSQ."
 date: "2026-08-24"
-tags: ["backend", "benchmarks", "kafka", "go"]
+tags: ["backend", "benchmarks", "kafka", "rabbitmq", "go"]
 ---
 
-Measurement in progress; this file is written from results/summary.md once the matrix completes.
+At a fixed 2000 msg/s with durability configured on all three, killing the consumer with SIGKILL
+cost zero messages on Kafka, NSQ and RabbitMQ alike — the interesting number is not loss, it is
+how long each one takes to hand the work back. RabbitMQ redelivered in about a millisecond, Kafka
+sat out a 24 second group rebalance, and NSQ's in-flight window came back only when its 60 second
+message timeout expired.
+
+## Question
+
+The delivery guarantees are documented. What is not documented is the size of the duplicate burst
+and the redelivery delay you actually get when a consumer dies holding in-flight messages, at a
+publish rate all three sustain comfortably — plus what that costs in steady-state latency and
+broker CPU.
+
+## Setup
+
+One Go harness, one `Producer`/`Consumer` interface per broker, so the client is not the
+confound. 512-byte fixed-seed payloads with monotonic sequence ids, so lost and duplicate are set
+differences over the sequence space rather than estimates. The producer runs on the host at a
+fixed 2000 msg/s for 30 s (60,000 messages); the consumer runs in a container so it can be
+SIGKILLed. Four runs per arm, the first discarded as warm-up, medians reported.
+
+Durability, because a Kafka-durable versus NSQ-in-memory comparison is not a comparison:
+
+- **Kafka 3.9 (KRaft, single node)**: `acks=all`, synchronous publish, one partition,
+  replication factor 1, `min.insync.replicas=1`, default flush policy — so `acks=all` here means
+  the leader has it in page cache, not on disk. Offsets are committed on a 1 s interval.
+- **NSQ 1.3**: synchronous `PUB`, `--mem-queue-size=0` so every message goes through the disk
+  queue, `--sync-every` left at its 2500-message default, `FIN` per message, max-in-flight 256.
+- **RabbitMQ 4**: publisher confirms with the publish call blocking on the confirm, durable queue,
+  persistent delivery mode, manual ack per message, prefetch 256.
+
+The crash arm is identical for all three: `docker kill -s SIGKILL` the consumer at t=12 s,
+`docker start` it at t=17 s, then let the run drain. A clean control arm runs alongside.
+
+## What I expected
+
+Kafka to lose nothing and duplicate roughly one commit interval of work; RabbitMQ and NSQ to
+redeliver their in-flight window as duplicates, since a message delivered but never acked must
+come back. I expected the duplicate counts to be the story and the delays to be small.
+
+## What happened
+
+The duplicate story is almost entirely a client-configuration story, and the delay story is the
+real one. Kafka produced 1,376 duplicates because kafka-go commits offsets on a 1 s timer, and 1 s
+of committed-but-uncommitted work is what a kill throws away. NSQ and RabbitMQ produced **zero**
+duplicates — not because they redeliver less, but because acking per message means the window of
+"work done, not yet acknowledged" is one message wide. Anything sitting in their prefetch or
+in-flight buffers had not been processed yet, so its redelivery is not a duplicate, it is the
+first delivery.
+
+The delays are where they diverge. RabbitMQ noticed the dead connection immediately and requeued:
+first redelivery 1 ms after restart, fully caught up 12 s later, worst message 5.4 s old. Kafka's
+restarted consumer could not join the group until the killed member's 30 s session timeout
+expired, so the first message arrived 24 s after restart and the oldest message in the run was
+29 s old. NSQ was the odd one: it handed over new messages almost immediately (12 ms), but the
+messages already in flight at the moment of the kill were only requeued when `msg-timeout`
+expired — the maximum end-to-end latency in every NSQ crash run is 60,150 ms, which is the 60 s
+default plus change, and the run takes 54 s after restart to fully drain.
+
+| broker   | lost | duplicates | first redelivery after restart | caught up after restart | oldest message | backlog peak |
+| -------- | ---: | ---------: | -----------------------------: | ----------------------: | -------------: | -----------: |
+| Kafka    |    0 |      1,376 |                      23,943 ms |               24,076 ms |      29,469 ms |       35,603 |
+| NSQ      |    0 |          0 |                          12 ms |               54,506 ms |      60,150 ms |       10,836 |
+| RabbitMQ |    0 |          0 |                           1 ms |               12,093 ms |       5,373 ms |       10,740 |
+
+Medians of three runs; full numbers in [`results/summary.md`](https://github.com/dhiazfathra/broker-crash-comparison/blob/master/results/summary.md).
+
+On the clean control arm all three delivered every message at the offered rate. RabbitMQ was the
+tightest: p50 50 ms, p99 62 ms. NSQ was close behind at p50 59 ms, p99 73 ms. Kafka had the best
+p50 at 8.8 ms and by far the worst tail, p99 1,429 ms with a backlog peak of 3,456 messages —
+single-partition fetch batching shows up as a lumpy tail, not as lost throughput.
+
+Steady-state cost, sampled every 3 s on the control arm, is the clearest separation in the whole
+experiment: NSQ 15.5 % of a core and 10 MiB RSS, Kafka 23.2 % and 402 MiB, RabbitMQ 93.3 % and
+82 MiB. RabbitMQ buys its millisecond redelivery with roughly a full core at 2000 msg/s.
+
+Publish-path saturation, measured separately with no consumer attached, put Kafka's ceiling at
+about 9.1k msg/s (it starts failing publishes at 40k offered), while NSQ and RabbitMQ both held
+20k msg/s cleanly and topped out around 26–27k. That is a one-partition, one-connection,
+synchronous-publish ceiling for Kafka, not Kafka's ceiling.
+
+## Why
+
+Every difference traces to where each system keeps the "who has this message" state. RabbitMQ
+tracks unacked deliveries per channel, so a dropped TCP connection is itself the signal to
+requeue — hence 1 ms. NSQ tracks in-flight messages with a per-message timer and has no
+connection-level requeue for them, so the only clock that matters is `msg-timeout`, and the
+default is 60 s. Kafka tracks nothing per message; it tracks a committed offset per group member,
+and the group cannot be reassigned until the coordinator declares the member dead, which takes a
+session timeout. The duplicate count follows the same logic: only Kafka has a window between
+"processed" and "acknowledged" wider than one message, and that window is `CommitInterval`, which
+we chose.
+
+## Decision
+
+For work where a fast handover after a consumer crash matters more than throughput, RabbitMQ with
+per-message acks is the default, and the cost is roughly a core. For a cheap, boring, low-footprint
+queue, NSQ wins on ops cost by an order of magnitude on memory — but ship it with a
+`msg-timeout` matched to your processing time, because leaving the 60 s default means a crash
+strands the in-flight window for a minute. For Kafka, the duplicate burst is yours to size: it is
+`CommitInterval` times your consumption rate, and the 24 s handover is `session.timeout.ms`, not a
+law of nature. Reasoning, alternatives and the durability caveats are in
+[ADR 0001](https://github.com/dhiazfathra/broker-crash-comparison/blob/master/docs/adr/0001-broker-durability-and-crash-comparison.md).
+
+Beyond CPU, "ops cost" is judgement, and I will label it as such: NSQ is two static binaries and
+a handful of flags; RabbitMQ is one node with a plugin system and a config surface you will meet
+again; Kafka on a single node hides the entire story — partition count, replication factor, ISR
+behaviour, rebalance protocol — that makes it worth running at all.
+
+## Threats to validity
+
+Single-node Kafka with replication factor 1 is not the Kafka anyone runs. This measures the local
+write path, not replication; `acks=all` against one broker with the default flush policy means
+page cache, and nothing here says what happens when a broker dies in a real cluster. One partition
+also denies Kafka the parallelism that is its main answer to load, which is why its saturation
+number is low and its tail latency is lumpy.
+
+Producer and consumer are separate processes on separate clocks: the container-minus-host offset
+is measured immediately before each run and subtracted, but drift within a 30 s run is not
+corrected, so treat single-digit-millisecond latency differences as noise. Everything is loopback
+on one laptop with six other benchmark stacks sharing the machine (serialised behind a shared
+mutex, but thermals are shared regardless). Synthetic fixed-size payloads, no consumer-side work
+beyond a log append, one consumer per broker, no network partition, no broker crash — only the
+consumer was killed.
+
+The earlier version of this run reported ~35,000 lost Kafka messages. That was a harness defect —
+the drain loop gave up before the group rebalance completed — and is recorded in
+`results/commands.md` rather than quietly deleted.
+
+## Rerun it
+
+```bash
+git clone https://github.com/dhiazfathra/broker-crash-comparison
+cd broker-crash-comparison
+make bench        # every broker x arm x rep, writes results/summary.md
+make saturation   # secondary: publish-path ceiling per broker
+```
+
+`make bench` brings each broker up and down itself. On a shared machine, hold the mutex around it
+and never release one you do not own.

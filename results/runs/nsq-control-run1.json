@@ -1,0 +1,19 @@
+{
+  "broker": "nsq",
+  "arm": "control",
+  "run": 1,
+  "published": 60000,
+  "deliveries": 60000,
+  "unique": 60000,
+  "lost": 0,
+  "duplicates": 0,
+  "duplicates_after_restart": 0,
+  "throughput_msgs_per_sec": 1990.877907259037,
+  "latency_p50_ms": 52.886,
+  "latency_p95_ms": 60.405701,
+  "latency_p99_ms": 82.341987,
+  "latency_max_ms": 343.559557,
+  "backlog_peak": 821,
+  "redelivery_delay_ms": 0,
+  "catch_up_ms": 0
+}

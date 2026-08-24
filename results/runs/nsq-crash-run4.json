@@ -1,0 +1,19 @@
+{
+  "broker": "nsq",
+  "arm": "crash",
+  "run": 4,
+  "published": 60000,
+  "deliveries": 60000,
+  "unique": 60000,
+  "lost": 0,
+  "duplicates": 0,
+  "duplicates_after_restart": 0,
+  "throughput_msgs_per_sec": 830.7640917302984,
+  "latency_p50_ms": 49.661328,
+  "latency_p95_ms": 3888.613768,
+  "latency_p99_ms": 5046.140088,
+  "latency_max_ms": 60086.191773,
+  "backlog_peak": 10670,
+  "redelivery_delay_ms": 2.82334,
+  "catch_up_ms": 54506.373721
+}

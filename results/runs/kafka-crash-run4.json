@@ -1,0 +1,19 @@
+{
+  "broker": "kafka",
+  "arm": "crash",
+  "run": 4,
+  "published": 60000,
+  "deliveries": 61170,
+  "unique": 60000,
+  "lost": 0,
+  "duplicates": 1170,
+  "duplicates_after_restart": 1170,
+  "throughput_msgs_per_sec": 1495.0596639973587,
+  "latency_p50_ms": 14585.569424,
+  "latency_p95_ms": 27994.067941,
+  "latency_p99_ms": 29179.294591,
+  "latency_max_ms": 29477.887502,
+  "backlog_peak": 35657,
+  "redelivery_delay_ms": 23984.204502,
+  "catch_up_ms": 24106.469512
+}
